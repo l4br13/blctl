@@ -1,0 +1,114 @@
+#!/bin/sh
+
+opt=$(getopt -n $(basename $0) -o hciu -l help,clean,install,uninstall -- "$@")
+
+if [ $? -ne 0 ]; then
+	printf "Try '$(basename $0) --help' for more information.\n"
+	exit
+fi
+
+eval set -- $opt
+
+while true; do
+	if [ "$1" = "--" ]; then
+		shift
+		optarg=$@
+		break
+	else
+		case $1 in
+			--install|-i)
+				install=1
+			;;
+			--help|-h)
+				help=1
+			;;
+			--uninstall|-u)
+				uninstall=1
+			;;
+			--clean|-c)
+				clean=1
+			;;
+			*)
+				break
+			;;
+		esac
+	fi
+	shift
+done
+
+if [ $(id -u) = 0 ]; then
+	printf "$(basename $0): do not run as root.\n"
+	exit
+fi
+
+this_dir=$(dirname $(realpath $0))
+src_dir=$this_dir/src
+out_dir=$this_dir/out
+program_name=$out_dir/$(basename $this_dir)
+
+if [ ! -d $out_dir ]; then
+	if [ -f $out_dir ]; then
+		rm -rf $out_dir
+	else
+		mkdir $out_dir
+	fi
+fi
+
+if [ ! -z $help ]; then
+	exit 1
+fi
+
+if [ ! -z $clean ]; then
+	printf "$(basename $0): clean\n"
+	rm -rf $out_dir
+	exit 1
+fi
+
+if [ ! -z $uninstall ]; then
+	printf "$(basename $0): uninstall\n"
+	if [ -f /usr/bin/backlight ]; then
+		sudo rm -rf /usr/bin/backlight
+		printf "removed: /usr/bin/backlight\n"
+	fi
+	if [ -d /var/lib/backlight ]; then
+		sudo rm -rf /var/lib/backlight
+		printf "removed: /var/lib/backlight\n"
+	fi
+	printf "$(basename $0): done\n"
+	exit 1
+fi
+
+put () {
+	if [ -z $1 ]; then
+		return 0
+	fi
+	if [ ! -f $* ]; then return 0; fi
+	printf "\n" >> $program_name
+	cat $@ >> $program_name
+	printf "\n" >> $program_name
+	return 1
+}
+
+printf "#!/bin/sh\n" > $program_name
+printf "# Build Date $(date)\n" >> $program_name
+
+put src/env.sh
+
+put src/init.sh
+
+put src/opt.sh
+
+for file in src/function.*.sh; do
+	put $file
+done
+
+put src/main.sh
+
+chmod +x $program_name
+
+if [ ! -z $install ]; then
+	sudo cp $program_name /usr/bin/backlight
+	sudo mkdir /var/lib/backlight
+	sudo chmod +x /usr/bin/backlight
+	exit 1
+fi
