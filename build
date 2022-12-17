@@ -1,5 +1,31 @@
 #!/bin/sh
 
+if [ $(id -u) = 0 ]; then
+	printf "$(basename $0): do not run as root.\n"
+	exit 1
+fi
+
+if [ $(id -u) != 0 ]; then
+	if [ -f /usr/bin/sudo ]; then
+		sudo=1
+	fi
+fi
+
+bin_path=/usr/bin
+var_path=/var
+this_dir=$(dirname $(realpath $0))
+src_dir=$this_dir/src
+out_dir=$this_dir/out
+file_out=$out_dir/$(basename $this_dir).sh
+program_name=$(basename $this_dir)
+
+cd $this_dir
+
+if [ $(uname -o) != "GNU/Linux" ]; then
+	bin_path=$PREFIX/bin
+	var_path=$PREFIX/var
+fi
+
 opt=$(getopt -n $(basename $0) -o hciu -l help,clean,install,uninstall -- "$@")
 
 if [ $? -ne 0 ]; then
@@ -36,16 +62,6 @@ while true; do
 	shift
 done
 
-if [ $(id -u) = 0 ]; then
-	printf "$(basename $0): do not run as root.\n"
-	exit
-fi
-
-this_dir=$(dirname $(realpath $0))
-src_dir=$this_dir/src
-out_dir=$this_dir/out
-program_name=$out_dir/$(basename $this_dir)
-
 if [ ! -d $out_dir ]; then
 	if [ -f $out_dir ]; then
 		rm -rf $out_dir
@@ -61,20 +77,28 @@ fi
 if [ ! -z $clean ]; then
 	printf "$(basename $0): clean\n"
 	rm -rf $out_dir
+	printf "complete.\n"
 	exit 1
 fi
 
 if [ ! -z $uninstall ]; then
 	printf "$(basename $0): uninstall\n"
-	if [ -f /usr/bin/backlight ]; then
-		sudo rm -rf /usr/bin/backlight
-		printf "removed: /usr/bin/backlight\n"
+	if [ ! -z $sudo ]; then
+		if [ -f $bin_path/$program_name ]; then
+			sudo rm -rf $bin_path/$program_name
+		fi
+		if [ -d $var_path/lib/$program_name ]; then
+			sudo rm -rf $var_path/lib/$program_name
+		fi
+	else
+		if [ -f $bin_path/$program_name ]; then
+			rm -rf $bin_path/$program_name
+		fi
+		if [ -d $var_path/lib/$program_name ]; then
+			rm -rf $var_path/lib/$program_name
+		fi
 	fi
-	if [ -d /var/lib/backlight ]; then
-		sudo rm -rf /var/lib/backlight
-		printf "removed: /var/lib/backlight\n"
-	fi
-	printf "$(basename $0): done\n"
+	printf "complete.\n"
 	exit 1
 fi
 
@@ -82,33 +106,53 @@ put () {
 	if [ -z $1 ]; then
 		return 0
 	fi
-	if [ ! -f $* ]; then return 0; fi
-	printf "\n" >> $program_name
-	cat $@ >> $program_name
-	printf "\n" >> $program_name
+	if [ ! -f $1 ]; then
+		return 0;
+	fi
+	printf "\n" >> $out_dir/$2
+	cat $1 >> $out_dir/$2
+	printf "\n" >> $out_dir/$2
 	return 1
 }
-
-printf "#!/bin/sh\n" > $program_name
-printf "# Build Date $(date)\n" >> $program_name
-
-put src/env.sh
-
-put src/init.sh
-
-put src/opt.sh
-
-for file in src/function.*.sh; do
-	put $file
+for build_file in $this_dir/*.build; do
+	build_name=$(basename $build_file .build)
+	printf "#!/bin/sh\n" > $out_dir/$build_name
+	printf "# Build date - $(date)\n" >> $out_dir/$build_name
+	for file in $(cat $build_file); do
+		for script in $file; do
+			put "$script" "$build_name"
+		done
+	done
+	chmod +x $out_dir/$build_name
 done
 
-put src/main.sh
 
-chmod +x $program_name
+if [ $(id -u) = 0 ]; then
+	if [ $(uname -o) = "GNU/Linux" ]; then
+		chown $(id -u) $file_out
+	fi
+fi
 
 if [ ! -z $install ]; then
-	sudo cp $program_name /usr/bin/backlight
-	sudo mkdir /var/lib/backlight
-	sudo chmod +x /usr/bin/backlight
+	printf "$(basename $0): install\n"
+	if [ ! -z $sudo ]; then
+		sudo cp $file_out $bin_path/$program_name
+		sudo chown 0 $bin_path/$program_name
+		sudo chmod +x $bin_path/$program_name
+		if [ ! -d $var_path/lib/$program_name ]; then
+			sudo mkdir $var_path/lib/$program_name
+		fi
+	else 
+		cp $file_out $bin_path/$program_name
+		chmod +x $bin_path/$program_name
+		if [ ! -d $var_path/lib/$program_name ]; then
+			mkdir $var_path/lib/$program_name
+		fi
+	fi
+	printf "complete.\n"
 	exit 1
+fi
+
+if [ ! -z $release ]; then
+	exit
 fi
